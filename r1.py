@@ -12,11 +12,13 @@ cursor.execute('CREATE TABLE matchs(id INTEGER PRIMARY KEY, home_team INTEGER, a
 db.commit()
 
 def convertDate(dateString):
-  return datetime.strptime(dateString, '%d/%m/%y').strftime("%Y-%m-%d")
+  if len(dateString) == 8: return datetime.strptime(dateString, '%d/%m/%y').strftime("%Y-%m-%d")
+  elif len(dateString) == 10: return datetime.strptime(dateString, '%d/%m/%Y').strftime("%Y-%m-%d")
+  
 
 def findTeamId(teamName):
   teamName = teamName.replace('\'', '')
-  cursor.execute('SELECT id from teams where name = \'' + teamName + '\'')
+  cursor.execute('SELECT id FROM teams where name = \'' + teamName + '\'')
   team = cursor.fetchone()
   if team is None: 
     cursor.execute('INSERT INTO teams(name) VALUES(:name)', {'name': teamName})
@@ -37,11 +39,49 @@ def handleFile(filename):
     for row in spamreader:
       if row[0] == 'E0':
         date = convertDate(row[1])
-        homeTeamName = row[2]
-        awayTeamName = row[3]
+        homeTeamName = row[2].strip()
+        awayTeamName = row[3].strip()
         homeScore = int(row[4])
         awayScore = int(row[5])
+
+        if homeScore == None:
+          print date + ' - ' + homeTeamName + ' - ' + awayTeamName
+
         saveMatch(homeTeamName, awayTeamName, date, homeScore, awayScore)
+
+def buildAverageGoalsAgainstTable():
+  cursor.execute('DROP TABLE IF EXISTS average_goals_against')
+  cursor.execute('CREATE TABLE average_goals_against(id INTEGER PRIMARY KEY, team INTEGER, opponent INTEGER, average_home INTEGER, average_against INTEGER)')
+  db.commit()
+
+  cursor.execute('SELECT id FROM teams')
+  lst = []
+  for row in cursor:
+    teamId = row[0]
+    lst.append(teamId)
+
+  for teamId in lst:
+    otherTeamsList = [x for x in lst if x != teamId]
+
+    for otherTeamId in otherTeamsList:
+      cursor.execute('SELECT sum(home_score), count(*) FROM matchs where home_team = '+str(teamId)+' and away_team = '+str(otherTeamId))
+      matchupData = cursor.fetchone()
+      if matchupData != None and matchupData[0] != None:
+        averageHome = float(matchupData[0]) / float(matchupData[1])
+      else:
+        averageHome = 0
+        
+      cursor.execute('SELECT sum(away_score), count(*) FROM matchs where home_team = '+str(otherTeamId)+' and away_team = '+str(teamId))
+      matchupData = cursor.fetchone()
+      if matchupData != None and matchupData[0] != None:
+        averageAway = float(matchupData[0]) / float(matchupData[1])
+      else: 
+        averageAway = 0
+
+      matchData = {'team': teamId, 'opponent': otherTeamId, 'averageHome': averageHome, 'averageAway': averageAway}
+      cursor.execute('INSERT INTO average_goals_against(team, opponent, average_home, average_against) VALUES(:team, :opponent, :averageHome, :averageAway)', matchData)
+    db.commit()
+      
 
 handleFile('E24.csv')
 handleFile('E23.csv')
@@ -68,5 +108,7 @@ handleFile('E03.csv')
 handleFile('E02.csv')
 handleFile('E01.csv')
 handleFile('E00.csv')
+
+buildAverageGoalsAgainstTable()
 
 db.close()
